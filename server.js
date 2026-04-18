@@ -14,78 +14,79 @@ const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET;
 // Store user sessions
 let users = {};
 
-// ✅ Webhook verification
+// ✅ WEBHOOK VERIFICATION (VERY IMPORTANT)
 app.get("/webhook", (req, res) => {
-  if (
-    req.query["hub.mode"] === "subscribe" &&
-    req.query["hub.verify_token"] === VERIFY_TOKEN
-  ) {
-    return res.send(req.query["hub.challenge"]);
+  const mode = req.query["hub.mode"];
+  const token = req.query["hub.verify_token"];
+  const challenge = req.query["hub.challenge"];
+
+  if (mode === "subscribe" && token === VERIFY_TOKEN) {
+    console.log("Webhook verified!");
+    return res.status(200).send(challenge);
+  } else {
+    return res.sendStatus(403);
   }
-  res.sendStatus(403);
 });
 
-// ✅ Receive messages
+// ✅ RECEIVE MESSAGES
 app.post("/webhook", async (req, res) => {
-  const message = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
+  try {
+    const message = req.body.entry?.[0]?.changes?.[0]?.value?.messages?.[0];
 
-  if (!message) return res.sendStatus(200);
+    if (!message) return res.sendStatus(200);
 
-  const from = message.from;
-  const text = message.text?.body?.trim();
+    const from = message.from;
+    const text = message.text?.body?.trim();
 
-  if (!users[from]) users[from] = { step: 0 };
+    if (!users[from]) users[from] = { step: 0 };
 
-  let reply = "";
+    let reply = "";
 
-  // STEP 0 - Welcome
-  if (users[from].step === 0) {
-    reply = `Welcome to Nestydatagh💙
+    // STEP 0
+    if (users[from].step === 0) {
+      reply = `Welcome to stoNyservice 💙
 
 1 - MTN Data
 2 - Telecel Data`;
-    users[from].step = 1;
-  }
+      users[from].step = 1;
+    }
 
-  // STEP 1 - Choose network
-  else if (users[from].step === 1) {
-    if (text === "1") {
-      reply = `MTN Bundles:
+    // STEP 1
+    else if (users[from].step === 1) {
+      if (text === "1") {
+        reply = `MTN Bundles:
 
 1 - 1GB ₵6
 2 - 2GB ₵12
 3 - 5GB ₵27`;
-      users[from].step = 2;
-      users[from].network = "MTN";
-    } else if (text === "2") {
-      reply = `Telecel Bundles:
+        users[from].step = 2;
+      } else if (text === "2") {
+        reply = `Telecel Bundles:
 
 1 - 5GB ₵25
 2 - 10GB ₵38`;
-      users[from].step = 2;
-      users[from].network = "TELECEL";
-    } else {
-      reply = "Please reply with 1 or 2";
+        users[from].step = 2;
+      } else {
+        reply = "Reply with 1 or 2";
+      }
     }
-  }
 
-  // STEP 2 - Choose bundle
-  else if (users[from].step === 2) {
-    users[from].bundle = text;
-    reply = "Enter phone number:";
-    users[from].step = 3;
-  }
+    // STEP 2
+    else if (users[from].step === 2) {
+      users[from].bundle = text;
+      reply = "Enter your phone number:";
+      users[from].step = 3;
+    }
 
-  // STEP 3 - Enter number & generate payment
-  else if (users[from].step === 3) {
-    users[from].number = text;
+    // STEP 3
+    else if (users[from].step === 3) {
+      users[from].number = text;
 
-    let amount = 600; // default ₵6
+      let amount = 600; // default ₵6
 
-    if (users[from].bundle === "2") amount = 1200;
-    if (users[from].bundle === "3") amount = 2700;
+      if (users[from].bundle === "2") amount = 1200;
+      if (users[from].bundle === "3") amount = 2700;
 
-    try {
       const paystack = await axios.post(
         "https://api.paystack.co/transaction/initialize",
         {
@@ -99,38 +100,39 @@ app.post("/webhook", async (req, res) => {
         }
       );
 
-      const paymentLink = paystack.data.data.authorization_url;
+      const link = paystack.data.data.authorization_url;
 
-      reply = `Click to pay:\n${paymentLink}
+      reply = `Click to pay:\n${link}
 
-After payment, your data will be delivered instantly ✅`;
+After payment, your data will be sent ✅`;
 
       users[from].step = 0;
-
-    } catch (error) {
-      reply = "Error generating payment link. Try again.";
-      console.log(error.response?.data || error.message);
     }
-  }
 
-  // ✅ Send reply back to WhatsApp
-  await axios.post(
-    `https://graph.facebook.com/v18.0/${PHONE_ID}/messages`,
-    {
-      messaging_product: "whatsapp",
-      to: from,
-      text: { body: reply },
-    },
-    {
-      headers: {
-        Authorization: `Bearer ${ACCESS_TOKEN}`,
-        "Content-Type": "application/json",
+    // ✅ SEND MESSAGE BACK TO WHATSAPP
+    await axios.post(
+      `https://graph.facebook.com/v18.0/${PHONE_ID}/messages`,
+      {
+        messaging_product: "whatsapp",
+        to: from,
+        text: { body: reply },
       },
-    }
-  );
+      {
+        headers: {
+          Authorization: `Bearer ${ACCESS_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
 
-  res.sendStatus(200);
+    res.sendStatus(200);
+
+  } catch (err) {
+    console.log(err.response?.data || err.message);
+    res.sendStatus(500);
+  }
 });
 
-// Start server
-app.listen(3000, () => console.log("Bot is running on port 3000"));
+// START SERVER
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
